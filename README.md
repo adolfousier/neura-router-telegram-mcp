@@ -1,3 +1,7 @@
+![](https://badge.mcpx.dev 'MCP')
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
+[![Dev LinkedIn](https://img.shields.io/badge/LinkedIn-blue)](https://www.linkedin.com/in/adolfousier/)
+
 # Neura Router Telegram MCP Server
 
 **Open Source Project**: This is an open-source conversational sandbox that allows users to interact with their contacts, groups, and channels on Telegram through the Model Context Protocol (MCP).
@@ -90,3 +94,11 @@ Once the server is running and connected (and the Python code in `src/telegram_m
 ## Go Bridge (Optional/Alternative)
 
 This repository also contains a `telegram-bridge` directory with a Go application that connects to Telegram using the `gotd` library. This was part of the initial development but is currently separate from the Python MCP server. It requires its own setup (Go environment, `go mod tidy`) and configuration (`telegram-bridge/config.ini`). It is not directly used by the Python MCP server.
+
+## Usage
+
+Once integrated, your Telegram tools (`get_chats`, `get_messages`, and `send_message`) will become available within the Claude for Desktop UI or any other MCP-compatible client.
+
+## License
+
+This project is licensed under the [Apache 2.0 License](https://opensource.org/licenses/Apache-2.0).
