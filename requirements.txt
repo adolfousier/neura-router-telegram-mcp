@@ -1,0 +1,2 @@
+telethon==1.34.0 # Use Telethon for user client interactions
+python-dotenv==1.0.0
