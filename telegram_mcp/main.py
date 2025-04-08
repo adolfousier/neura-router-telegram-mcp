@@ -1,5 +1,5 @@
 import asyncio
-from telegram_mcp.client.telegram_mcp import TelegramMCP
+from client.telegram_mcp import TelegramMCP
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

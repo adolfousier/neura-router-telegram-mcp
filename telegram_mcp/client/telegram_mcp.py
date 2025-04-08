@@ -8,7 +8,7 @@ from telethon.errors import SessionPasswordNeededError, FloodWaitError, UserNotP
 from telethon.tl.types import InputPeerUser, InputPeerChannel, User, Chat, Channel
 
 # Use the custom MCP server base from src/mcp.py
-from telegram_mcp.server.mcp import Server, McpError
+from server.mcp import Server, McpError
 # Assuming MCP types and transport might be needed, adjust if using official SDK later
 # from MCP.types import CallToolRequestSchema
 # from MCP.transports import StdioServerTransport

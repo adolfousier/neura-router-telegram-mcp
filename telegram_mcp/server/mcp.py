@@ -2,6 +2,7 @@ import json
 import sys
 import logging
 from typing import Any, Dict, List, Optional, Union
+import asyncio # Add asyncio import
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,6 @@ class McpError(Exception):
         self.message = message
         super().__init__(f"MCP Error {code}: {message}")
 
-import asyncio # Add asyncio import
 
 
 class Server:
