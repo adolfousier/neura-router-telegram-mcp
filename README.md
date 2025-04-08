@@ -1,5 +1,7 @@
 # Neura Router Telegram MCP Server
 
+**Open Source Project**: This is an open-source conversational sandbox that allows users to interact with their contacts, groups, and channels on Telegram through the Model Context Protocol (MCP).
+
 This project implements a Model Context Protocol (MCP) server that connects to a Telegram user account using the Telegram API. It utilizes Python and the `telethon` library to interact with Telegram and exposes tools via MCP for tasks like listing chats and sending messages.
 
 ## Prerequisites

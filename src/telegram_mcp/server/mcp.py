@@ -16,7 +16,6 @@ class McpError(Exception):
 
 import asyncio # Add asyncio import
 
-import asyncio # Ensure asyncio is imported
 
 class Server:
     """MCP Server implementation"""
