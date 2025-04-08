@@ -19,21 +19,29 @@ class McpError(Exception):
 
 class Server:
     """MCP Server implementation"""
-    def __init__(self, info: Dict[str, str], capabilities: Dict[str, Dict], loop=None): # Add loop parameter
+    def __init__(self, info: Dict[str, str], capabilities: Dict[str, Dict], loop=None):
         self.info = info
         self.capabilities = capabilities
-        self.request_handlers = {}
+        self.request_handlers = {
+            "tools/call": self._handle_tool_call,
+            "initialize": self._handle_initialize
+        }
         self.onerror = None
+        
         # Get the loop passed or the current running loop
         self.loop = loop
         if self.loop is None:
-             try:
-                  self.loop = asyncio.get_running_loop()
-             except RuntimeError:
-                  logger.warning("No running event loop found, creating a new one for Server.")
-                  # This might be problematic if the main app runs its own loop later
-                  self.loop = asyncio.new_event_loop()
-                  # asyncio.set_event_loop(self.loop) # Avoid setting global loop if possible
+            try:
+                self.loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logger.warning("No running event loop found, creating a new one for Server.")
+                # This might be problematic if the main app runs its own loop later
+                self.loop = asyncio.new_event_loop()
+                # asyncio.set_event_loop(self.loop) # Avoid setting global loop if possible
+        
+        # Register default handler
+        self.setRequestHandler("tools/call", self._handle_tool_call)
+        # Don't run the loop here - it would block 
 
     def connect(self, transport):
         """Connect to the transport"""
@@ -105,9 +113,11 @@ class Server:
         else:
             # Handle synchronous handlers (if any)
             try:
-                result = handler(params) # Pass params directly
+                result = handler(params)
                 if message_id is not None:
                     self._send_result(message_id, result)
+                else:
+                    logger.info(f"Notification-only request completed successfully")
             except McpError as e:
                 self._send_error(message_id, e.code, e.message)
             except Exception as e:
@@ -143,6 +153,36 @@ class Server:
         except Exception as e:
             logger.error(f"Error sending message: {e}")
             
+    def _handle_tool_call(self, params: Dict):
+        """Default handler for tool calls"""
+        try:
+            # Add your tool call handling logic here
+            logger.info(f"Received tool call with parameters: {params}")
+            return {"status": "success", "message": "Tool call handled successfully"}
+        except Exception as e:
+            logger.error(f"Error handling tool call: {e}")
+            raise McpError(-32000, f"Error executing tool call: {str(e)}")
+
+    def _handle_initialize(self, params):
+        """Handle initialize request from the client"""
+        logger.info(f"Handling initialize request with params: {params}")
+        
+        # Ensure serverInfo has the required name field
+        server_info = {
+            "name": self.info.get("name", "Neura Telegram MCP"),
+            "version": self.info.get("version", "0.0.3"),
+            # Add any other required fields here
+        }
+        
+        # Return the response in the expected format according to MCP protocol
+        return {
+            "protocolVersion": "2024-11-05",  # Use the specified MCP protocol version
+            "serverInfo": server_info,        # This is the server info object with required fields
+            "capabilities": self.capabilities
+        }
+
     def setRequestHandler(self, method: str, handler):
         """Set a request handler for a method"""
         self.request_handlers[method] = handler
+        # Remove this line that causes the circular reference:
+        # self.register_request_handler(method, handler)

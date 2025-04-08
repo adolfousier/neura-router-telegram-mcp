@@ -22,7 +22,7 @@ load_dotenv()
 
 # --- Constants ---
 # Define absolute path for session file to avoid ambiguity
-SESSION_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'telegram_mcp.session'))
+SESSION_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'telegram_mcp.session'))
 logger = logging.getLogger(__name__) # Define logger earlier
 
 class TelegramMCP:
@@ -49,30 +49,203 @@ class TelegramMCP:
         self.client = TelegramClient(SESSION_FILE_PATH, self.api_id, self.api_hash, loop=self.loop)
         self._client_lock = asyncio.Lock() # Lock for client operations
 
-        # Initialize MCP Server, passing the loop
-        self.server = Server(
-            {
-                "name": "neura-router-telegram-mcp",
-                "version": "0.0.2" # Incremented version
+        # Define tool capabilities upfront
+        tools_capabilities = {
+            "list_chats": {
+                "name": "list_chats",
+                "description": "List recent Telegram chats with an optional limit.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "number",
+                            "description": "Maximum number of chats to return (default 20)"
+                        }
+                    }
+                }
             },
-            {}, # Capabilities can be empty if using setRequestHandler
+            "send_message": {
+                "name": "send_message",
+                "description": "Send a message to a specified Telegram chat (user ID, username, phone, or link).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string", 
+                            "description": "The target chat identifier (username, phone number, user ID, chat ID, or invite link)."
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "The text message content to send."
+                        }
+                    },
+                    "required": ["chat_id", "message"]
+                }
+            },
+            "schedule_message": {
+                "name": "schedule_message",
+                "description": "Schedule a message to be sent at a specific time.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string",
+                            "description": "The target chat identifier."
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "The text message content to send."
+                        },
+                        "scheduled_time": {
+                            "type": "string",
+                            "description": "ISO 8601 datetime string for when to send the message."
+                        }
+                    },
+                    "required": ["chat_id", "message", "scheduled_time"]
+                }
+            },
+            "read_messages": {
+                "name": "read_messages",
+                "description": "Read messages from a specific chat with optional limit.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string",
+                            "description": "The target chat identifier."
+                        },
+                        "limit": {
+                            "type": "number",
+                            "description": "Maximum number of messages to return (default 20)."
+                        }
+                    },
+                    "required": ["chat_id"]
+                }
+            },
+            "delete_message": {
+                "name": "delete_message",
+                "description": "Delete a specific message from a chat.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string",
+                            "description": "The target chat identifier."
+                        },
+                        "message_id": {
+                            "type": "number",
+                            "description": "ID of the message to delete."
+                        }
+                    },
+                    "required": ["chat_id", "message_id"]
+                }
+            },
+            "edit_message": {
+                "name": "edit_message",
+                "description": "Edit an existing message in a chat.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string",
+                            "description": "The target chat identifier."
+                        },
+                        "message_id": {
+                            "type": "number",
+                            "description": "ID of the message to edit."
+                        },
+                        "new_text": {
+                            "type": "string",
+                            "description": "The new text for the message."
+                        }
+                    },
+                    "required": ["chat_id", "message_id", "new_text"]
+                }
+            },
+            "search_messages": {
+                "name": "search_messages",
+                "description": "Search for messages in a chat by keyword.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string",
+                            "description": "The target chat identifier."
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search query text."
+                        },
+                        "limit": {
+                            "type": "number",
+                            "description": "Maximum number of messages to return (default 20)."
+                        }
+                    },
+                    "required": ["chat_id", "query"]
+                }
+            },
+            "get_message": {
+                "name": "get_message",
+                "description": "Get a specific message by ID from a chat.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chat_id": {
+                            "type": "string",
+                            "description": "The target chat identifier."
+                        },
+                        "message_id": {
+                            "type": "number",
+                            "description": "ID of the message to retrieve."
+                        }
+                    },
+                    "required": ["chat_id", "message_id"]
+                }
+            }
+        }
+        
+        # Initialize MCP Server with full capabilities
+        self.server = Server(
+            info={"na": "Telegram MCP Server", "version": "0.0.2"},
+            capabilities={
+                "tools": tools_capabilities,
+                "resources": {}
+            },
             loop=self.loop
         )
-        logger.info("MCP Server initialized")
+        
+        logger.info("MCP Server initialized with full tool capabilities")
 
-        # Register handlers with the custom server
-        # Tool names match the keys in the original __init__ definition
-        # Register MCP handlers for all implemented tools
-        self.server.setRequestHandler("initialize", self.initialize)
-        self.server.setRequestHandler("list_chats", self.list_chats)
-        self.server.setRequestHandler("send_message", self.send_message)
-        self.server.setRequestHandler("schedule_message", self.schedule_message)
-        self.server.setRequestHandler("read_messages", self.read_messages)
-        self.server.setRequestHandler("delete_message", self.delete_message)
-        self.server.setRequestHandler("edit_message", self.edit_message)
-        self.server.setRequestHandler("search_messages", self.search_messages)
-        self.server.setRequestHandler("get_message", self.get_message)
+        # Register handlers with the custom server - using setRequestHandler instead of register_request_handler
+        self.server.setRequestHandler("tools/call", self._handle_tool_call)
         logger.info("MCP request handlers registered")
+
+    async def _handle_tool_call(self, params):
+        """Handle tool calls from MCP clients."""
+        tool_name = params.get('name')
+        tool_params = params.get('parameters', {})
+        
+        logger.info(f"Received tool call: {tool_name} with parameters: {tool_params}")
+        
+        # Map tool names to handler methods
+        tool_handlers = {
+            "list_chats": self.list_chats,
+            "send_message": self.send_message,
+            "schedule_message": self.schedule_message,
+            "read_messages": self.read_messages,
+            "delete_message": self.delete_message,
+            "edit_message": self.edit_message,
+            "search_messages": self.search_messages,
+            "get_message": self.get_message,
+        }
+        
+        handler = tool_handlers.get(tool_name)
+        if not handler:
+            logger.error(f"Unknown tool requested: {tool_name}")
+            raise McpError(-32601, f"Method '{tool_name}' not found")
+        
+        # Call the appropriate handler with the parameters
+        return await handler(tool_params)
 
     async def _ensure_connected(self):
         """Connects and authorizes the client if not already connected. Uses a lock."""
@@ -101,177 +274,6 @@ class TelegramMCP:
                  logger.error("Client is connected but not authorized. Manual login likely required.")
                  # It's crucial the session file is valid for non-interactive use.
                  raise McpError(-32002, "Telegram authorization failed. Ensure session file is valid or run interactively first.")
-
-    async def initialize(self, params):
-        """Handle the MCP initialize request and return capabilities."""
-        # Based on registered handlers
-        logger.info("Handling initialize request")
-        # The 'params' usually contain client info, which we aren't using here.
-        # Construct the response according to MCP specification.
-        return {
-            "protocolVersion": "2024-11-05", # Use standard MCP protocol version format
-            "serverInfo": self.server.info, # Required server info (name, version)
-            "capabilities": {
-                 # Tools should be an object mapping name to definition
-                "tools": {
-                    "list_chats": {
-                        "name": "list_chats",
-                        "description": "List recent Telegram chats with an optional limit.",
-                        # Add inputSchema if defined/needed
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "limit": {
-                                    "type": "number",
-                                    "description": "Maximum number of chats to return (default 20)"
-                                }
-                            }
-                        }
-                    },
-                    "send_message": {
-                        "name": "send_message",
-                        "description": "Send a message to a specified Telegram chat (user ID, username, phone, or link).",
-                        # Add inputSchema if defined/needed
-                         "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string", # Can be int or string, but string covers all cases
-                                    "description": "The target chat identifier (username, phone number, user ID, chat ID, or invite link)."
-                                },
-                                "message": {
-                                    "type": "string",
-                                    "description": "The text message content to send."
-                                }
-                            },
-                            "required": ["chat_id", "message"]
-                        }
-                    },
-                    "schedule_message": {
-                        "name": "schedule_message",
-                        "description": "Schedule a message to be sent at a specific time.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string",
-                                    "description": "The target chat identifier."
-                                },
-                                "message": {
-                                    "type": "string",
-                                    "description": "The text message content to send."
-                                },
-                                "scheduled_time": {
-                                    "type": "string",
-                                    "description": "ISO 8601 datetime string for when to send the message."
-                                }
-                            },
-                            "required": ["chat_id", "message", "scheduled_time"]
-                        }
-                    },
-                    "read_messages": {
-                        "name": "read_messages",
-                        "description": "Read messages from a specific chat with optional limit.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string",
-                                    "description": "The target chat identifier."
-                                },
-                                "limit": {
-                                    "type": "number",
-                                    "description": "Maximum number of messages to return (default 20)."
-                                }
-                            },
-                            "required": ["chat_id"]
-                        }
-                    },
-                    "delete_message": {
-                        "name": "delete_message",
-                        "description": "Delete a specific message from a chat.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string",
-                                    "description": "The target chat identifier."
-                                },
-                                "message_id": {
-                                    "type": "number",
-                                    "description": "ID of the message to delete."
-                                }
-                            },
-                            "required": ["chat_id", "message_id"]
-                        }
-                    },
-                    "edit_message": {
-                        "name": "edit_message",
-                        "description": "Edit an existing message in a chat.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string",
-                                    "description": "The target chat identifier."
-                                },
-                                "message_id": {
-                                    "type": "number",
-                                    "description": "ID of the message to edit."
-                                },
-                                "new_text": {
-                                    "type": "string",
-                                    "description": "The new text for the message."
-                                }
-                            },
-                            "required": ["chat_id", "message_id", "new_text"]
-                        }
-                    },
-                    "search_messages": {
-                        "name": "search_messages",
-                        "description": "Search for messages in a chat by keyword.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string",
-                                    "description": "The target chat identifier."
-                                },
-                                "query": {
-                                    "type": "string",
-                                    "description": "Search query text."
-                                },
-                                "limit": {
-                                    "type": "number",
-                                    "description": "Maximum number of messages to return (default 20)."
-                                }
-                            },
-                            "required": ["chat_id", "query"]
-                        }
-                    },
-                    "get_message": {
-                        "name": "get_message",
-                        "description": "Get a specific message by ID from a chat.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "chat_id": {
-                                    "type": "string",
-                                    "description": "The target chat identifier."
-                                },
-                                "message_id": {
-                                    "type": "number",
-                                    "description": "ID of the message to retrieve."
-                                }
-                            },
-                            "required": ["chat_id", "message_id"]
-                        }
-                    }
-                },
-                 # Resources should be an object mapping URI to definition (or empty)
-                "resources": {} # No resources defined currently
-            }
-        }
 
     async def list_chats(self, params):
         """List recent chats with optional limit parameter."""
@@ -324,7 +326,6 @@ class TelegramMCP:
         except Exception as e:
             logger.error(f"Error listing chats: {e}", exc_info=True) # Log traceback
             raise McpError(-32000, f"Failed to list chats: {type(e).__name__}")
-
 
     async def schedule_message(self, params):
         """Schedule a message to be sent at a specific time."""
@@ -646,11 +647,15 @@ class TelegramMCP:
             logger.info("Telegram MCP Server stopped.")
 
 
-if __name__ == "__main__":
+def main():
+    logger = logging.getLogger("main")
+    logger.info("Starting main application...")
+    
     # Get the current event loop or create one if needed for the main thread
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
+        logger.info("Creating a new event loop.")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -672,3 +677,6 @@ if __name__ == "__main__":
          if not loop.is_closed():
              loop.close()
              logger.info("Event loop closed.")
+
+if __name__ == "__main__":
+    main()
