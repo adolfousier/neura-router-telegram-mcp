@@ -8,6 +8,11 @@ require (
 )
 
 require (
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	google.golang.org/protobuf v1.28.1
+)
+
+require (
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/go-faster/errors v0.6.1 // indirect
 	github.com/go-faster/jx v1.1.0 // indirect

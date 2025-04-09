@@ -1,0 +1,1 @@
+cd /Users/itsyourtime/Documents/Cline/MCP/neura-router-telegram-mcp && python telegram_mcp/main.py aux | grep telegram_mcp 

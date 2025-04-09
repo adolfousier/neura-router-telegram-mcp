@@ -1,71 +1,42 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
+	qrcode "github.com/skip2/go-qrcode"
+
+	"google.golang.org/protobuf/encoding/prototext"
+	"github.com/gotd/td/telegram/auth"
+	"google.golang.org/protobuf/encoding/prototext"
+	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
-	"github.com/gotd/td/telegram/auth"
-	"github.com/gotd/td/tg"
 	"gopkg.in/ini.v1"
 )
 
-// noSignUp can be embedded to prevent signing up.
-type noSignUp struct{}
-
-func (c noSignUp) SignUp(ctx context.Context) (auth.UserInfo, error) {
-	return auth.UserInfo{}, fmt.Errorf("signing up is not supported")
-}
-
-func (c noSignUp) AcceptTermsOfService(ctx context.Context, tos tg.HelpTermsOfService) error {
-	return &auth.SignUpRequired{TermsOfService: tos}
-}
-
-// termAuth implements authentication via terminal.
-type termAuth struct {
-	noSignUp
-	phone string
-}
-
-func (a termAuth) Phone(_ context.Context) (string, error) {
-	return a.phone, nil
-}
-
-func (a termAuth) Password(_ context.Context) (string, error) {
-	fmt.Print("Enter 2FA password: ")
-	bytePwd, err := bufio.NewReader(os.Stdin).ReadBytes('\n')
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(bytePwd)), nil
-}
-
-func (a termAuth) Code(_ context.Context, _ *tg.AuthSentCode) (string, error) {
-	fmt.Print("Enter code: ")
-	byteCode, err := bufio.NewReader(os.Stdin).ReadBytes('\n')
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(byteCode)), nil
+// Structure to hold essential session data for export
+type ExportedSession struct {
+	DC      int    `json:"dc_id"`
+	Addr    string `json:"addr"`
+	AuthKey []byte `json:"auth_key"`
+	UserID  int64  `json:"user_id"`
 }
 
 func main() {
 	log.Println("Starting Telegram bridge...")
 
 	// Load configuration
-	cfg, err := ini.Load("telegram-bridge/config.ini") // Ensure path is correct relative to CWD
+	cfg, err := ini.Load("config.ini")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v\n", err)
 	}
 
 	apiIDStr := cfg.Section("telegram").Key("api_id").String()
 	apiHash := cfg.Section("telegram").Key("api_hash").String()
-	phoneNumber := cfg.Section("telegram").Key("phone_number").String()
 
 	var apiID int
 	_, err = fmt.Sscan(apiIDStr, &apiID)
@@ -73,57 +44,155 @@ func main() {
 		log.Fatalf("Invalid api_id: %v\n", err)
 	}
 
-	if apiHash == "" || phoneNumber == "" || apiID == 0 {
-		log.Fatalf("api_id, api_hash, and phone_number must be set in config.ini")
+	if apiHash == "" || apiID == 0 {
+		log.Fatalf("api_id and api_hash must be set in config.ini")
 	}
 
 	// Set up session storage
-	sessionDir := "telegram-bridge/store" // Relative to CWD
+	sessionDir := "store"
 	if err := os.MkdirAll(sessionDir, 0700); err != nil {
 		log.Fatalf("Failed to create session directory: %v", err)
 	}
 	sessionStorage := &session.FileStorage{
 		Path: fmt.Sprintf("%s/telegram.session", sessionDir),
 	}
+	sharedSessionPath := fmt.Sprintf("%s/shared_session.json", sessionDir) // Path for JSON export
 
 	// Create Telegram client
 	client := telegram.NewClient(apiID, apiHash, telegram.Options{
 		SessionStorage: sessionStorage,
-		// You might need to add other options like log levels, etc.
 	})
 
 	// Run the client
 	err = client.Run(context.Background(), func(ctx context.Context) error {
 		log.Println("Client started, checking authentication...")
 
-		// Check authentication status
 		status, err := client.Auth().Status(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get auth status: %w", err)
 		}
 
-		// Authenticate if necessary
 		if !status.Authorized {
-			log.Println("Not authorized, performing authentication...")
-			flow := auth.NewFlow(termAuth{phone: phoneNumber}, auth.SendCodeOptions{})
-			if err := client.Auth().IfNecessary(ctx, flow); err != nil {
-				return fmt.Errorf("authentication failed: %w", err)
+			log.Println("Not authorized, attempting QR code authentication...")
+			sendCode := auth.NewSendCode(
+				ctx,
+				"+1234567890",
+				auth.SendCodeOptions{},
+			)
+			code, err := sendCode.Send()
+			token, err := client.Auth().QRCode(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get QR code token: %w", err)
 			}
-			log.Println("Authentication successful!")
+
+			loginURL := fmt.Sprintf("tg://login?token=%s", token)
+			log.Printf("Scan the QR code using Telegram App (Settings > Devices > Link Desktop Device)\nLogin URL: %s\n", loginURL)
+			qrErr := qrcode.WriteFile(loginURL, qrcode.Medium, 256, "store/qrcode.png")
+			if qrErr != nil {
+				log.Printf("Failed to generate QR code image file: %v", qrErr)
+				qrTerminal, qrTerminalErr := qrcode.New(loginURL, qrcode.Medium)
+				if qrTerminalErr == nil {
+					fmt.Println(qrTerminal.ToSmallString(false))
+				} else {
+					log.Printf("Failed to generate terminal QR code: %v", qrTerminalErr)
+				}
+			} else {
+				log.Println("QR code saved to store/qrcode.png")
+				qrTerminal, qrTerminalErr := qrcode.New(loginURL, qrcode.Medium)
+				if qrTerminalErr == nil {
+					fmt.Println(qrTerminal.ToSmallString(false))
+				}
+			}
+
+			log.Println("Waiting for login confirmation via QR code scan...")
+			signIn := auth.NewSignIn(
+		ctx,
+		code,
+		"+1234567890",
+		"password",
+		)
+        session := client.GetSession()
+				ctx,
+				code,
+				"+1234567890",
+				"password",
+			)
+			user, err := signIn.SignIn()
+			// Handle successful authorization
+			if status.Authorized {
+			    log.Println("Authorization completed")
+			}
+			if err != nil {
+				return fmt.Errorf("failed to accept login token: %w", err)
+			}
+			log.Printf("Authentication successful! Logged in as user %d\n", user.ID())
+
+			// Export session data after successful login
+			session := client.GetSession()
+			session := client.GetSession()
+			session := client.GetSession()
+			sessionData, err := session.LoadSession()
+			if err != nil {
+				log.Printf("Warning: Failed to load session data for export: %v", err)
+			} else {
+				exported := ExportedSession{
+					DC:      int(session.DC),
+					Addr:    session.Address(),
+					AuthKey: sessionData.AuthKey,
+					UserID:  sessionData.UserID,
+				}
+        session := client.GetSession()
+				jsonData, err := json.MarshalIndent(exported, "", "  ")
+        session := client.GetSession()
+				if err != nil {
+					log.Printf("Warning: Failed to marshal session data to JSON: %v", err)
+				} else {
+					err = os.WriteFile(sharedSessionPath, jsonData, 0600)
+					if err != nil {
+						log.Printf("Warning: Failed to write shared session file '%s': %v", sharedSessionPath, err)
+					} else {
+						log.Printf("Session data successfully exported to %s", sharedSessionPath)
+					}
+				}
+			}
+
 		} else {
 			log.Println("Already authorized.")
+			// Also export session if already authorized
+			session := client.GetSession()
+			session := client.Sessions.Session()
+			sessionData, err := session.LoadSession()
+			if err != nil {
+				log.Printf("Warning: Failed to load session data for export: %v", err)
+			} else {
+				exported := ExportedSession{
+					DC:      int(session.DC),
+					Addr:    session.Address(),
+					AuthKey: sessionData.AuthKey,
+					UserID:  sessionData.UserID,
+				}
+				jsonData, err := json.MarshalIndent(exported, "", "  ")
+				if err != nil {
+					log.Printf("Warning: Failed to marshal session data to JSON: %v", err)
+				} else {
+					err = os.WriteFile(sharedSessionPath, jsonData, 0600)
+					if err != nil {
+						log.Printf("Warning: Failed to write shared session file '%s': %v", sharedSessionPath, err)
+					} else {
+						log.Printf("Session data successfully exported to %s", sharedSessionPath)
+					}
+				}
+			}
 		}
 
-		// Get self info
 		self, err := client.Self(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get self info: %w", err)
 		}
 		log.Printf("Logged in as: %s %s (@%s)\n", self.FirstName, self.LastName, self.Username)
 
-		// Placeholder for message handling or other logic
 		log.Println("Telegram bridge running. Press Ctrl+C to exit.")
-		<-ctx.Done() // Keep running until context is cancelled (e.g., Ctrl+C)
+		<-ctx.Done()
 		return ctx.Err()
 	})
 

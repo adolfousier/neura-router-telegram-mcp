@@ -1,6 +1,6 @@
 [project]
 name = "neura-telegram-mcp-server"
-version = "0.0.2"
+version = "0.0.3"
 description = "Neura Whatsapp MCP is a conversational sandbox that allows users to interact with their contacts, channels and groups on Telegram."
 readme = "README.md"
 requires-python = ">=3.11"
