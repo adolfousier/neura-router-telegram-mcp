@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
+	"time"
 
-	qrcode "github.com/skip2/go-qrcode"
-
-	"google.golang.org/protobuf/encoding/prototext"
-	"github.com/gotd/td/telegram/auth"
-	"google.golang.org/protobuf/encoding/prototext"
-	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
+	"github.com/skip2/go-qrcode"
 	"gopkg.in/ini.v1"
 )
 
@@ -26,11 +23,19 @@ type ExportedSession struct {
 	UserID  int64  `json:"user_id"`
 }
 
+// Data structure that should match the gotd/td session format
+type SessionData struct {
+	DC      int    `json:"dc_id"`
+	Addr    string `json:"addr"`
+	AuthKey []byte `json:"auth_key"`
+	UserID  int64  `json:"user_id"`
+}
+
 func main() {
 	log.Println("Starting Telegram bridge...")
 
 	// Load configuration
-	cfg, err := ini.Load("config.ini")
+	cfg, err := ini.Load("telegram-bridge/config.ini")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v\n", err)
 	}
@@ -56,6 +61,7 @@ func main() {
 	sessionStorage := &session.FileStorage{
 		Path: fmt.Sprintf("%s/telegram.session", sessionDir),
 	}
+	sessionFilePath := fmt.Sprintf("%s/telegram.session", sessionDir)
 	sharedSessionPath := fmt.Sprintf("%s/shared_session.json", sessionDir) // Path for JSON export
 
 	// Create Telegram client
@@ -73,115 +79,50 @@ func main() {
 		}
 
 		if !status.Authorized {
-			log.Println("Not authorized, attempting QR code authentication...")
-			sendCode := auth.NewSendCode(
-				ctx,
-				"+1234567890",
-				auth.SendCodeOptions{},
-			)
-			code, err := sendCode.Send()
-			token, err := client.Auth().QRCode(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to get QR code token: %w", err)
-			}
+			log.Println("Not authorized. Please scan the QR code below with Telegram mobile app.")
+			log.Println("Open Telegram app → Settings → Devices → Link Desktop Device")
 
-			loginURL := fmt.Sprintf("tg://login?token=%s", token)
-			log.Printf("Scan the QR code using Telegram App (Settings > Devices > Link Desktop Device)\nLogin URL: %s\n", loginURL)
-			qrErr := qrcode.WriteFile(loginURL, qrcode.Medium, 256, "store/qrcode.png")
-			if qrErr != nil {
-				log.Printf("Failed to generate QR code image file: %v", qrErr)
-				qrTerminal, qrTerminalErr := qrcode.New(loginURL, qrcode.Medium)
-				if qrTerminalErr == nil {
-					fmt.Println(qrTerminal.ToSmallString(false))
-				} else {
-					log.Printf("Failed to generate terminal QR code: %v", qrTerminalErr)
-				}
+			// Generate QR code for web.telegram.org
+			loginURL := "https://web.telegram.org/a/"
+			if err := qrcode.WriteFile(loginURL, qrcode.Medium, 256, "store/qrcode.png"); err != nil {
+				log.Printf("Failed to generate QR code image: %v", err)
 			} else {
 				log.Println("QR code saved to store/qrcode.png")
-				qrTerminal, qrTerminalErr := qrcode.New(loginURL, qrcode.Medium)
-				if qrTerminalErr == nil {
-					fmt.Println(qrTerminal.ToSmallString(false))
-				}
 			}
 
-			log.Println("Waiting for login confirmation via QR code scan...")
-			signIn := auth.NewSignIn(
-		ctx,
-		code,
-		"+1234567890",
-		"password",
-		)
-        session := client.GetSession()
-				ctx,
-				code,
-				"+1234567890",
-				"password",
-			)
-			user, err := signIn.SignIn()
-			// Handle successful authorization
-			if status.Authorized {
-			    log.Println("Authorization completed")
+			// Also show terminal QR code
+			qrTerminal, err := qrcode.New(loginURL, qrcode.Medium)
+			if err == nil {
+				fmt.Println(qrTerminal.ToSmallString(false))
 			}
-			if err != nil {
-				return fmt.Errorf("failed to accept login token: %w", err)
+
+			// Wait for user to scan QR code and login
+			log.Println("Waiting for authorization... Please scan the QR code.")
+			for {
+				// Check every few seconds if we're authorized
+				time.Sleep(3 * time.Second)
+
+				status, err := client.Auth().Status(ctx)
+				if err != nil {
+					log.Printf("Error checking auth status: %v", err)
+					continue
+				}
+
+				if status.Authorized {
+					log.Println("Authorization successful!")
+					break
+				}
 			}
-			log.Printf("Authentication successful! Logged in as user %d\n", user.ID())
 
 			// Export session data after successful login
-			session := client.GetSession()
-			session := client.GetSession()
-			session := client.GetSession()
-			sessionData, err := session.LoadSession()
-			if err != nil {
-				log.Printf("Warning: Failed to load session data for export: %v", err)
-			} else {
-				exported := ExportedSession{
-					DC:      int(session.DC),
-					Addr:    session.Address(),
-					AuthKey: sessionData.AuthKey,
-					UserID:  sessionData.UserID,
-				}
-        session := client.GetSession()
-				jsonData, err := json.MarshalIndent(exported, "", "  ")
-        session := client.GetSession()
-				if err != nil {
-					log.Printf("Warning: Failed to marshal session data to JSON: %v", err)
-				} else {
-					err = os.WriteFile(sharedSessionPath, jsonData, 0600)
-					if err != nil {
-						log.Printf("Warning: Failed to write shared session file '%s': %v", sharedSessionPath, err)
-					} else {
-						log.Printf("Session data successfully exported to %s", sharedSessionPath)
-					}
-				}
+			if err := exportSession(sessionFilePath, sharedSessionPath); err != nil {
+				log.Printf("Warning: Failed to export session: %v", err)
 			}
-
 		} else {
 			log.Println("Already authorized.")
 			// Also export session if already authorized
-			session := client.GetSession()
-			session := client.Sessions.Session()
-			sessionData, err := session.LoadSession()
-			if err != nil {
-				log.Printf("Warning: Failed to load session data for export: %v", err)
-			} else {
-				exported := ExportedSession{
-					DC:      int(session.DC),
-					Addr:    session.Address(),
-					AuthKey: sessionData.AuthKey,
-					UserID:  sessionData.UserID,
-				}
-				jsonData, err := json.MarshalIndent(exported, "", "  ")
-				if err != nil {
-					log.Printf("Warning: Failed to marshal session data to JSON: %v", err)
-				} else {
-					err = os.WriteFile(sharedSessionPath, jsonData, 0600)
-					if err != nil {
-						log.Printf("Warning: Failed to write shared session file '%s': %v", sharedSessionPath, err)
-					} else {
-						log.Printf("Session data successfully exported to %s", sharedSessionPath)
-					}
-				}
+			if err := exportSession(sessionFilePath, sharedSessionPath); err != nil {
+				log.Printf("Warning: Failed to export session: %v", err)
 			}
 		}
 
@@ -201,4 +142,41 @@ func main() {
 	}
 
 	log.Println("Telegram bridge stopped.")
+}
+
+// exportSession reads the session file directly and exports it to the specified path
+func exportSession(sessionFilePath, exportPath string) error {
+	// Read the session file
+	sessionFileData, err := ioutil.ReadFile(sessionFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	// Try to parse the session data
+	var sessionData SessionData
+	if err := json.Unmarshal(sessionFileData, &sessionData); err != nil {
+		return fmt.Errorf("failed to parse session data: %w", err)
+	}
+
+	// Create exported session data
+	exported := ExportedSession{
+		DC:      sessionData.DC,
+		Addr:    sessionData.Addr,
+		AuthKey: sessionData.AuthKey,
+		UserID:  sessionData.UserID,
+	}
+
+	// Export to the shared session file
+	jsonData, err := json.MarshalIndent(exported, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal session data to JSON: %w", err)
+	}
+
+	err = os.WriteFile(exportPath, jsonData, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to write shared session file '%s': %w", exportPath, err)
+	}
+
+	log.Printf("Session data successfully exported to %s", exportPath)
+	return nil
 }
